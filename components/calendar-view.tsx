@@ -1,355 +1,376 @@
 "use client"
 
-import { useState } from "react"
-import { Card } from "@/components/ui/card"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { ChevronLeft, ChevronRight, Clock, MapPin, User, Building2, Trash2 } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, MoreHorizontal } from "lucide-react"
 import type { Booking } from "@/types/booking"
 import { TIME_BLOCKS } from "@/types/booking"
 
-interface CalendarViewProps {
+type Props = {
   bookings: Booking[]
   onSlotClick: (date: Date, time: string) => void
-  onReschedule: (bookingId: string, newStartTime: Date, newEndTime: Date) => boolean
+  onReschedule: (bookingId: string, newStart: Date, newEnd: Date) => boolean
   onDeleteBooking: (bookingId: string, deleteAllWeekly?: boolean) => void
   viewMode: "week" | "month"
 }
 
-const getTypeColor = (type: string) => {
-  const colors = {
-    class: "bg-primary/20 border-primary text-foreground",
-    lab: "bg-info/20 border-info text-foreground",
-    ayudantia: "bg-success/20 border-success text-foreground",
-    seminar: "bg-warning/20 border-warning text-foreground",
-    certamen: "bg-destructive/20 border-destructive text-foreground",
-    evento: "bg-purple/20 border-purple text-foreground",
+/* ----------------- helpers ----------------- */
+const todayAt0 = () => {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+const hhmm = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+
+const startOfWeek = (date: Date) => {
+  const d = new Date(date)
+  const day = d.getDay() === 0 ? 7 : d.getDay() // 1..7 (Lun..Dom)
+  d.setDate(d.getDate() - (day - 1))
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+const addDays = (d: Date, days: number) => {
+  const x = new Date(d)
+  x.setDate(x.getDate() + days)
+  return x
+}
+const isSameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+const startOfMonthGrid = (date: Date) => {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1)
+  const firstWeekDay = first.getDay() === 0 ? 7 : first.getDay() // 1..7
+  return addDays(first, -(firstWeekDay - 1))
+}
+const monthGridDays = (cursor: Date) => {
+  const start = startOfMonthGrid(cursor)
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i)) // 6x7
+}
+const dayNames = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+/* --- colores consistentes en leyenda, filtros y eventos --- */
+const typeStyle = (t: Booking["type"]) => {
+  switch (t) {
+    case "class":     return { chip: "bg-blue-500/15 border-blue-500/30", dot: "bg-blue-500",    label: "Clase" }
+    case "lab":       return { chip: "bg-amber-500/15 border-amber-500/30", dot: "bg-amber-500", label: "Laboratorio" }
+    case "ayudantia": return { chip: "bg-emerald-500/15 border-emerald-500/30", dot: "bg-emerald-500", label: "Ayudantía" }
+    case "seminar":   return { chip: "bg-purple-500/15 border-purple-500/30", dot: "bg-purple-500", label: "Seminario" }
+    case "certamen":  return { chip: "bg-rose-500/15 border-rose-500/30", dot: "bg-rose-500",    label: "Certamen" }
+    default:          return { chip: "bg-muted border-border", dot: "bg-muted-foreground", label: "Evento" }
   }
-  return colors[type as keyof typeof colors] || "bg-muted border-border"
 }
 
-export function CalendarView({ bookings, onSlotClick, onReschedule, onDeleteBooking, viewMode }: CalendarViewProps) {
-  const [currentDate, setCurrentDate] = useState(new Date(2025, 4, 30))
-  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; booking: Booking | null }>({
-    open: false,
-    booking: null,
-  })
+export function CalendarView({
+  bookings,
+  onSlotClick,
+  onReschedule,
+  onDeleteBooking,
+  viewMode,
+}: Props) {
+  const [cursorDate, setCursorDate] = useState<Date>(() => todayAt0())
 
-  const getWeekDays = (date: Date) => {
-    const start = new Date(date)
-    start.setDate(start.getDate() - start.getDay() + 1)
+  const weekStart = useMemo(() => startOfWeek(cursorDate), [cursorDate])
+  const weekDays  = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
+  const monthDays = useMemo(() => monthGridDays(cursorDate), [cursorDate])
 
-    return Array.from({ length: 7 }, (_, i) => {
-      const day = new Date(start)
-      day.setDate(start.getDate() + i)
-      return day
-    })
-  }
+  const goPrev  = () => setCursorDate(viewMode === "week" ? addDays(cursorDate, -7) : new Date(cursorDate.getFullYear(), cursorDate.getMonth() - 1, 1))
+  const goNext  = () => setCursorDate(viewMode === "week" ? addDays(cursorDate, 7)  : new Date(cursorDate.getFullYear(), cursorDate.getMonth() + 1, 1))
+  const goToday = () => setCursorDate(todayAt0())
 
-  const getMonthDays = (date: Date) => {
-    const year = date.getFullYear()
-    const month = date.getMonth()
-    const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
-    const daysInMonth = lastDay.getDate()
+  const eventsOfDay = (date: Date) =>
+    bookings
+      .filter((b) => isSameDay(b.startTime, date))
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 
-    return Array.from({ length: daysInMonth }, (_, i) => {
-      return new Date(year, month, i + 1)
-    })
-  }
-
-  const weekDays = getWeekDays(currentDate)
-  const monthDays = getMonthDays(currentDate)
-
-  const getBookingsForSlot = (date: Date, startTime: string, endTime: string) => {
-    const [startHours, startMinutes] = startTime.split(":").map(Number)
-    const [endHours, endMinutes] = endTime.split(":").map(Number)
-
-    const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), startHours, startMinutes, 0, 0)
-    const slotEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), endHours, endMinutes, 0, 0)
-
-    return bookings.filter((booking) => {
-      const bookingStart = booking.startTime.getTime()
-      const bookingEnd = booking.endTime.getTime()
-      const slotStartTime = slotStart.getTime()
-      const slotEndTime = slotEnd.getTime()
-
-      return (
-        (bookingStart >= slotStartTime && bookingStart < slotEndTime) ||
-        (bookingEnd > slotStartTime && bookingEnd <= slotEndTime) ||
-        (bookingStart <= slotStartTime && bookingEnd >= slotEndTime)
-      )
-    })
-  }
-
-  const navigateWeek = (direction: "prev" | "next") => {
-    const newDate = new Date(currentDate)
-    newDate.setDate(newDate.getDate() + (direction === "next" ? 7 : -7))
-    setCurrentDate(newDate)
-  }
-
-  const navigateMonth = (direction: "prev" | "next") => {
-    const newDate = new Date(currentDate)
-    newDate.setMonth(newDate.getMonth() + (direction === "next" ? 1 : -1))
-    setCurrentDate(newDate)
-  }
-
-  const handleDeleteClick = (booking: Booking) => {
-    if (booking.recurrence === "weekly") {
-      setDeleteDialog({ open: true, booking })
-    } else {
-      onDeleteBooking(booking.id)
-    }
-  }
-
-  const handleConfirmDelete = (deleteAll: boolean) => {
-    if (deleteDialog.booking) {
-      onDeleteBooking(deleteDialog.booking.id, deleteAll)
-      setDeleteDialog({ open: false, booking: null })
-    }
-  }
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString("es-ES", { day: "numeric", month: "short" })
-  }
-
-  const formatDayName = (date: Date) => {
-    return date.toLocaleDateString("es-ES", { weekday: "short" })
-  }
+  const blockByStart = useMemo(() => {
+    const map = new Map<string, (typeof TIME_BLOCKS)[number]>()
+    TIME_BLOCKS.forEach((b) => map.set(b.startTime, b))
+    return map
+  }, [])
 
   return (
-    <>
-      <Card className="p-6">
-        {/* Calendar Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">
-              {currentDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" })}
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {viewMode === "week"
-                ? `${weekDays[0].toLocaleDateString("es-ES", { day: "numeric", month: "short" })} - ${weekDays[6].toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`
-                : "Vista mensual"}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => (viewMode === "week" ? navigateWeek("prev") : navigateMonth("prev"))}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" onClick={() => setCurrentDate(new Date())}>
-              Hoy
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => (viewMode === "week" ? navigateWeek("next") : navigateMonth("next"))}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+    <div className="space-y-4">
+      {/* barra de navegación */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={goPrev}><ChevronLeft className="h-4 w-4" /></Button>
+          <Button variant="outline" size="sm" onClick={goToday} className="gap-1">
+            <CalendarIcon className="h-4 w-4" /> Hoy
+          </Button>
+          <Button variant="outline" size="sm" onClick={goNext}><ChevronRight className="h-4 w-4" /></Button>
         </div>
+        <div className="text-sm text-muted-foreground">
+          {viewMode === "week"
+            ? <>Semana del <strong>{weekStart.toLocaleDateString()} – {addDays(weekStart, 6).toLocaleDateString()}</strong></>
+            : <><strong>{cursorDate.toLocaleString(undefined, { month: "long" })} {cursorDate.getFullYear()}</strong></>}
+        </div>
+      </div>
 
-        {/* Calendar Grid */}
-        <div className="overflow-x-auto">
-          <div className="min-w-[800px]">
-            {/* Day Headers */}
-            {viewMode === "week" ? (
-              <div className="grid grid-cols-8 gap-3 mb-3">
-                <div className="text-sm font-medium text-muted-foreground p-3">Hora</div>
-                {weekDays.map((day, index) => (
-                  <div key={index} className="text-center p-3 bg-muted/30 rounded-lg">
-                    <div className="text-sm font-semibold text-foreground">{formatDayName(day)}</div>
-                    <div
-                      className={`text-xs mt-1 ${
-                        day.toDateString() === new Date().toDateString()
-                          ? "text-primary font-bold"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {formatDate(day)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-7 gap-2 mb-3">
-                {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => (
-                  <div key={day} className="text-center p-2 text-sm font-semibold text-muted-foreground">
-                    {day}
-                  </div>
-                ))}
-              </div>
-            )}
+      {viewMode === "week" ? (
+        <WeekView
+          weekDays={weekDays}
+          bookings={bookings}
+          onSlotClick={onSlotClick}
+          onDeleteBooking={onDeleteBooking}
+          blockByStart={blockByStart}
+        />
+      ) : (
+        <MonthView
+          monthDays={monthDays}
+          cursorDate={cursorDate}
+          eventsOfDay={eventsOfDay}
+          onSlotClick={onSlotClick}
+          onReschedule={onReschedule}
+          onDeleteBooking={onDeleteBooking}
+        />
+      )}
+    </div>
+  )
+}
 
-            {/* Time Slots */}
-            {viewMode === "week" ? (
-              <div className="space-y-3">
-                {TIME_BLOCKS.map((slot) => (
-                  <div key={slot.id} className="grid grid-cols-8 gap-3">
-                    <div className="text-xs font-medium p-3 flex flex-col justify-start bg-muted/20 rounded-lg">
-                      <span className="font-semibold text-foreground text-sm">{slot.label}</span>
-                      <span className="text-[11px] mt-1 text-muted-foreground">{slot.startTime}</span>
-                      <span className="text-[11px] text-muted-foreground">{slot.endTime}</span>
-                    </div>
-                    {weekDays.map((day, dayIndex) => {
-                      const slotBookings = getBookingsForSlot(day, slot.startTime, slot.endTime)
-                      const hasBookings = slotBookings.length > 0
-                      const isLunchTime = slot.isLunch
+/* =================== VISTA SEMANAL =================== */
+function WeekView({
+  weekDays,
+  bookings,
+  onSlotClick,
+  onDeleteBooking,
+  blockByStart,
+}: {
+  weekDays: Date[]
+  bookings: Booking[]
+  onSlotClick: (date: Date, time: string) => void
+  onDeleteBooking: (id: string, allWeekly?: boolean) => void
+  blockByStart: Map<string, (typeof TIME_BLOCKS)[number]>
+}) {
+  const byDayBlock = useMemo(() => {
+    const m = new Map<string, Booking[]>()
+    for (const b of bookings) {
+      const key = `${b.startTime.getFullYear()}-${b.startTime.getMonth()}-${b.startTime.getDate()}::${hhmm(b.startTime)}`
+      if (!m.has(key)) m.set(key, [])
+      m.get(key)!.push(b)
+    }
+    return m
+  }, [bookings])
 
-                      return (
-                        <div
-                          key={dayIndex}
-                          onClick={() => !hasBookings && !isLunchTime && onSlotClick(day, slot.startTime)}
-                          className={`min-h-[90px] p-2 rounded-lg border transition-all ${
-                            isLunchTime
-                              ? "bg-muted/30 border-border cursor-not-allowed opacity-50"
-                              : hasBookings
-                                ? "bg-muted/50 border-border cursor-default"
-                                : "bg-card border-dashed border-border hover:border-primary hover:bg-primary/5 cursor-pointer"
-                          }`}
-                        >
-                          {isLunchTime && (
-                            <div className="text-xs text-muted-foreground text-center py-6">Horario de almuerzo</div>
-                          )}
-                          {slotBookings.map((booking) => (
-                            <div
-                              key={booking.id}
-                              className={`p-2 rounded-md border-l-4 ${getTypeColor(booking.type)} mb-1 text-xs relative group`}
-                            >
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteClick(booking)
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/50">
+          <tr>
+            <th className="w-32 p-2 text-left">Bloque</th>
+            {weekDays.map((d) => (
+              <th key={d.toDateString()} className="p-2 text-left">
+                <div className="font-medium">
+                  {dayNames[(d.getDay() + 6) % 7]} {d.getDate()}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {d.toLocaleString(undefined, { month: "short" })}
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {TIME_BLOCKS.map((block) => (
+            <tr key={block.id} className="border-t">
+              <td className="p-2 align-top">
+                <div className="font-medium">{block.label}</div>
+                <div className="text-xs text-muted-foreground">{block.startTime}</div>
+              </td>
 
-                              <div className="font-semibold mb-1 text-foreground pr-8">{booking.title}</div>
-                              <div className="flex items-center gap-1 text-muted-foreground mb-1">
-                                <Clock className="h-3 w-3" />
-                                <span>
-                                  {booking.startTime.toLocaleTimeString("es-ES", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}{" "}
-                                  -{booking.endTime.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 text-muted-foreground mb-1">
-                                <Building2 className="h-3 w-3" />
-                                <span>Edificio {booking.building}</span>
-                              </div>
-                              <div className="flex items-center gap-1 text-muted-foreground">
-                                <MapPin className="h-3 w-3" />
-                                <span>{booking.room}</span>
-                              </div>
-                              <div className="flex items-center gap-1 text-muted-foreground">
-                                <User className="h-3 w-3" />
-                                <span>{booking.instructor}</span>
+              {weekDays.map((day) => {
+                const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}::${block.startTime}`
+                const events = byDayBlock.get(key) ?? []
+                const isEmpty = events.length === 0
+
+                return (
+                  <td key={key} className="p-1 align-top">
+                    {isEmpty ? (
+                      <button
+                        type="button"
+                        className="w-full rounded border border-dashed p-6 text-center text-muted-foreground hover:bg-muted"
+                        onClick={() => onSlotClick(day, block.startTime)}
+                        aria-label={`Crear reserva el ${day.toLocaleDateString()} a las ${block.startTime}`}
+                      >
+                        + Crear
+                      </button>
+                    ) : (
+                      <div className="space-y-1">
+                        {events.map((ev) => {
+                          const st = hhmm(ev.startTime)
+                          const et = hhmm(ev.endTime)
+                          const color = typeStyle(ev.type).chip
+                          return (
+                            <div key={ev.id} className={`rounded-md border ${color} p-2`}>
+                              <div className="font-medium leading-tight">{st}–{et} · {ev.title}</div>
+                              <div className="text-xs text-muted-foreground leading-tight">{ev.building}-{ev.room}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                <button
+                                  className="hover:text-destructive"
+                                  onClick={() => onDeleteBooking(ev.id, ev.recurrence === "weekly")}
+                                  title={ev.recurrence === "weekly" ? "Eliminar serie" : "Eliminar"}
+                                >
+                                  Eliminar{ev.recurrence === "weekly" ? " serie" : ""}
+                                </button>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-7 gap-2">
-                {/* Empty cells for days before month starts */}
-                {Array.from({ length: (monthDays[0].getDay() + 6) % 7 }).map((_, i) => (
-                  <div key={`empty-${i}`} className="min-h-[100px] p-2 rounded-lg bg-muted/20" />
-                ))}
-                {/* Days of the month */}
-                {monthDays.map((day) => {
-                  const dayBookings = bookings.filter((booking) => {
-                    return (
-                      booking.startTime.getDate() === day.getDate() &&
-                      booking.startTime.getMonth() === day.getMonth() &&
-                      booking.startTime.getFullYear() === day.getFullYear()
-                    )
-                  })
-                  const isToday = day.toDateString() === new Date().toDateString()
+                          )
+                        })}
+                      </div>
+                    )}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* =================== VISTA MENSUAL =================== */
+function MonthView({
+  monthDays,
+  cursorDate,
+  eventsOfDay,
+  onSlotClick,
+  onReschedule,
+  onDeleteBooking,
+}: {
+  monthDays: Date[]
+  cursorDate: Date
+  eventsOfDay: (d: Date) => Booking[]
+  onSlotClick: (date: Date, time: string) => void
+  onReschedule: (bookingId: string, newStart: Date, newEnd: Date) => boolean
+  onDeleteBooking: (bookingId: string, deleteAllWeekly?: boolean) => void
+}) {
+  const month = cursorDate.getMonth()
+
+  return (
+    <div className="space-y-2">
+      {/* cabecera días */}
+      <div className="grid grid-cols-7 text-xs text-muted-foreground px-1">
+        {dayNames.map((n) => (<div key={n} className="p-2">{n}</div>))}
+      </div>
+
+      {/* grilla 7x6 */}
+      <div className="grid grid-cols-7 gap-1">
+        {monthDays.map((dayDate) => {
+          const isCurrentMonth = dayDate.getMonth() === month
+          const isToday = isSameDay(dayDate, todayAt0())
+          const events = eventsOfDay(dayDate)
+
+          return (
+            <div
+              key={dayDate.toISOString()}
+              className={`min-h-28 rounded-md border p-1 ${isCurrentMonth ? "" : "opacity-50"} ${isToday ? "ring-1 ring-primary" : ""}`}
+            >
+              {/* Crear nueva reserva desde el día (elige bloque) */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full text-left rounded-md px-2 py-1 hover:bg-muted focus:outline-none focus:ring"
+                    aria-label={`Crear reserva el ${dayDate.toLocaleDateString()}`}
+                  >
+                    <span className="text-sm font-medium">{dayDate.getDate()}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="p-2 space-y-1 w-56" align="start">
+                  {TIME_BLOCKS.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      className="w-full text-left rounded px-2 py-1 hover:bg-accent"
+                      onClick={() => onSlotClick(dayDate, b.startTime)}
+                    >
+                      {b.label}
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+
+              {/* eventos del día (chips con acciones) */}
+              <div className="mt-1 space-y-1">
+                {events.map((ev) => {
+                  const st = hhmm(ev.startTime)
+                  const color = typeStyle(ev.type).chip
+                  const durMs = ev.endTime.getTime() - ev.startTime.getTime()
 
                   return (
-                    <div
-                      key={day.toISOString()}
-                      className={`min-h-[100px] p-2 rounded-lg border transition-all ${
-                        isToday
-                          ? "border-primary bg-primary/5"
-                          : "border-border bg-card hover:border-primary/50 hover:bg-primary/5"
-                      }`}
-                    >
-                      <div className={`text-sm font-semibold mb-2 ${isToday ? "text-primary" : "text-foreground"}`}>
-                        {day.getDate()}
-                      </div>
-                      <div className="space-y-1">
-                        {dayBookings.slice(0, 3).map((booking) => (
-                          <div
-                            key={booking.id}
-                            className={`text-[10px] p-1 rounded border-l-2 ${getTypeColor(booking.type)} truncate relative group cursor-pointer hover:pr-6 transition-all`}
-                            title={booking.title}
-                          >
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              className="absolute top-0.5 right-0.5 h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteClick(booking)
-                              }}
+                    <div key={ev.id} className={`rounded border ${color} px-2 py-1 text-xs`}>
+                      <div className="flex items-start justify-between gap-1">
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{st} · {ev.title}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">{ev.building}-{ev.room}</div>
+                        </div>
+
+                        {/* menú acciones: editar bloque / eliminar / eliminar serie */}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="p-1 rounded hover:bg-muted"
+                              aria-label="Acciones"
+                              title="Acciones"
                             >
-                              <Trash2 className="h-2.5 w-2.5" />
-                            </Button>
-                            {booking.title}
-                          </div>
-                        ))}
-                        {dayBookings.length > 3 && (
-                          <div className="text-[10px] text-muted-foreground">+{dayBookings.length - 3} más</div>
-                        )}
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="p-2 space-y-2 w-60" align="end">
+                            <div className="text-xs font-medium text-muted-foreground px-1">Editar bloque</div>
+                            <div className="grid grid-cols-2 gap-1">
+                              {TIME_BLOCKS.map((b) => (
+                                <button
+                                  key={b.id}
+                                  type="button"
+                                  className="text-left rounded px-2 py-1 hover:bg-accent"
+                                  onClick={() => {
+                                    const [h, m] = b.startTime.split(":").map(Number)
+                                    const newStart = new Date(ev.startTime)
+                                    newStart.setHours(h, m, 0, 0)
+                                    const newEnd = new Date(newStart.getTime() + durMs)
+                                    onReschedule(ev.id, newStart, newEnd)
+                                  }}
+                                >
+                                  {b.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="h-px bg-border my-1" />
+
+                            <button
+                              type="button"
+                              className="w-full text-left rounded px-2 py-1 hover:bg-accent"
+                              onClick={() => onDeleteBooking(ev.id, false)}
+                            >
+                              Eliminar
+                            </button>
+
+                            {ev.recurrence === "weekly" && (
+                              <button
+                                type="button"
+                                className="w-full text-left rounded px-2 py-1 hover:bg-accent text-destructive"
+                                onClick={() => onDeleteBooking(ev.id, true)}
+                              >
+                                Eliminar serie
+                              </button>
+                            )}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </div>
                   )
                 })}
               </div>
-            )}
-          </div>
-        </div>
-      </Card>
-
-      {/* Dialog for confirming deletion of weekly bookings */}
-      <Dialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open, booking: null })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Eliminar reserva semanal</DialogTitle>
-            <DialogDescription>Esta reserva se repite semanalmente. ¿Qué deseas eliminar?</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => handleConfirmDelete(false)}>
-              Solo esta reserva
-            </Button>
-            <Button variant="destructive" onClick={() => handleConfirmDelete(true)}>
-              Todas las reservas semanales
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
