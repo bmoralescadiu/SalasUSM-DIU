@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CalendarView } from "@/components/calendar-view"
 import { BookingFilters } from "@/components/booking-filters"
@@ -9,10 +9,13 @@ import { ConflictAlert } from "@/components/conflict-alert"
 import { Calendar } from "lucide-react"
 import type { Booking, BookingFilters as Filters } from "@/types/booking"
 import { TIME_BLOCKS } from "@/types/booking"
+import { loadBookings, saveBookings } from "@/lib/storage"
+import { Legend } from "@/components/legend"
 
-const mockBookings: Booking[] = [
+/** Opcional: semillas para demo la primera vez (puedes borrar si no quieres) */
+const seedBookings: Booking[] = [
   {
-    id: "1",
+    id: "seed-1",
     title: "Clase de Matemáticas",
     type: "class",
     room: "Sala A101",
@@ -28,7 +31,7 @@ const mockBookings: Booking[] = [
     recurrence: "once",
   },
   {
-    id: "2",
+    id: "seed-2",
     title: "Laboratorio de Física",
     type: "lab",
     room: "Laboratorio 3",
@@ -43,58 +46,15 @@ const mockBookings: Booking[] = [
     hasAudioSystem: true,
     recurrence: "once",
   },
-  {
-    id: "3",
-    title: "Ayudantía de Programación",
-    type: "ayudantia",
-    room: "Sala C203",
-    building: "C",
-    instructor: "Ayud. López",
-    startTime: new Date(2025, 4, 30, 14, 40),
-    endTime: new Date(2025, 4, 30, 15, 50),
-    participants: 8,
-    tableType: "grupal",
-    roomType: "aula",
-    hasProjector: true,
-    hasAudioSystem: false,
-    recurrence: "weekly",
-  },
-  {
-    id: "4",
-    title: "Seminario de Investigación",
-    type: "seminar",
-    room: "Sala E305",
-    building: "E",
-    instructor: "Dr. Rodríguez",
-    startTime: new Date(2025, 5, 2, 16, 5),
-    endTime: new Date(2025, 5, 2, 17, 15),
-    participants: 50,
-    tableType: "auditorio",
-    roomType: "auditorio",
-    hasProjector: true,
-    hasAudioSystem: true,
-    recurrence: "once",
-  },
-  {
-    id: "5",
-    title: "Certamen de Cálculo",
-    type: "certamen",
-    room: "Aula Magna",
-    building: "F",
-    instructor: "Prof. Silva",
-    startTime: new Date(2025, 5, 3, 8, 15),
-    endTime: new Date(2025, 5, 3, 9, 25),
-    participants: 120,
-    tableType: "individual",
-    roomType: "auditorio",
-    hasProjector: false,
-    hasAudioSystem: true,
-    recurrence: "once",
-  },
 ]
 
+const genId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2, 11)
+
 export function BookingCalendar() {
-  const [bookings, setBookings] = useState<Booking[]>(mockBookings)
+  const [bookings, setBookings] = useState<Booking[]>([])
   const [filters, setFilters] = useState<Filters>({
     activityType: "all",
     searchQuery: "",
@@ -109,13 +69,27 @@ export function BookingCalendar() {
   const [conflicts, setConflicts] = useState<Booking[]>([])
   const [viewMode, setViewMode] = useState<"week" | "month">("week")
 
+  /** Carga inicial desde localStorage (y si está vacío, siembra opcionalmente) */
+  useEffect(() => {
+    const initial = loadBookings()
+    if (initial.length === 0) {
+      setBookings(seedBookings)
+      saveBookings(seedBookings)
+    } else {
+      setBookings(initial)
+    }
+  }, [])
+
   const handleSlotClick = (date: Date, time: string) => {
     setSelectedSlot({ date, time })
     setIsModalOpen(true)
   }
 
-  const checkConflicts = (newBooking: Omit<Booking, "id">): Booking[] => {
+  /** Conflictos: permite ignorar un id (útil al reprogramar el mismo evento) */
+  const checkConflicts = (newBooking: Omit<Booking, "id">, ignoreId?: string): Booking[] => {
     return bookings.filter((booking) => {
+      if (ignoreId && booking.id === ignoreId) return false
+
       const newStart = newBooking.startTime.getTime()
       const newEnd = newBooking.endTime.getTime()
       const existingStart = booking.startTime.getTime()
@@ -135,31 +109,31 @@ export function BookingCalendar() {
 
   const handleBookingSubmit = (newBooking: Omit<Booking, "id">) => {
     const foundConflicts = checkConflicts(newBooking)
-
     if (foundConflicts.length > 0) {
       setConflicts(foundConflicts)
       return false
     }
 
-    const booking: Booking = {
-      ...newBooking,
-      id: Math.random().toString(36).substr(2, 9),
-    }
+    const base: Booking = { ...newBooking, id: genId() }
 
     if (newBooking.recurrence === "weekly") {
-      const weeklyBookings: Booking[] = []
+      const weekly: Booking[] = []
       for (let i = 0; i < 12; i++) {
-        const weekOffset = i * 7 * 24 * 60 * 60 * 1000
-        weeklyBookings.push({
-          ...booking,
-          id: Math.random().toString(36).substr(2, 9),
-          startTime: new Date(newBooking.startTime.getTime() + weekOffset),
-          endTime: new Date(newBooking.endTime.getTime() + weekOffset),
+        const weekMs = i * 7 * 24 * 60 * 60 * 1000
+        weekly.push({
+          ...base,
+          id: genId(),
+          startTime: new Date(newBooking.startTime.getTime() + weekMs),
+          endTime: new Date(newBooking.endTime.getTime() + weekMs),
         })
       }
-      setBookings([...bookings, ...weeklyBookings])
+      const newList = [...bookings, ...weekly]
+      setBookings(newList)
+      saveBookings(newList)
     } else {
-      setBookings([...bookings, booking])
+      const newList = [...bookings, base]
+      setBookings(newList)
+      saveBookings(newList)
     }
 
     setIsModalOpen(false)
@@ -171,84 +145,69 @@ export function BookingCalendar() {
     const booking = bookings.find((b) => b.id === bookingId)
     if (!booking) return false
 
-    const updatedBooking = {
-      ...booking,
-      startTime: newStartTime,
-      endTime: newEndTime,
-    }
-
-    const foundConflicts = checkConflicts(updatedBooking)
-
+    const updated: Booking = { ...booking, startTime: newStartTime, endTime: newEndTime }
+    const foundConflicts = checkConflicts(updated, bookingId)
     if (foundConflicts.length > 0) {
       setConflicts(foundConflicts)
       return false
     }
 
-    setBookings(bookings.map((b) => (b.id === bookingId ? updatedBooking : b)))
+    const newList = bookings.map((b) => (b.id === bookingId ? updated : b))
+    setBookings(newList)
+    saveBookings(newList)
     setConflicts([])
     return true
   }
 
   const handleDeleteBooking = (bookingId: string, deleteAllWeekly?: boolean) => {
     const booking = bookings.find((b) => b.id === bookingId)
+    if (!booking) return
 
-    if (booking && booking.recurrence === "weekly" && deleteAllWeekly) {
-      // Eliminar todas las instancias semanales futuras
+    let newList: Booking[] = bookings
+
+    if (booking.recurrence === "weekly" && deleteAllWeekly) {
       const bookingTime = booking.startTime.toTimeString().slice(0, 5)
       const bookingDay = booking.startTime.getDay()
 
-      setBookings(
-        bookings.filter((b) => {
-          if (b.room !== booking.room || b.title !== booking.title) return true
-          const bTime = b.startTime.toTimeString().slice(0, 5)
-          const bDay = b.startTime.getDay()
-          return !(bTime === bookingTime && bDay === bookingDay && b.startTime >= booking.startTime)
-        }),
-      )
+      newList = bookings.filter((b) => {
+        if (b.room !== booking.room || b.title !== booking.title) return true
+        const bTime = b.startTime.toTimeString().slice(0, 5)
+        const bDay = b.startTime.getDay()
+        return !(bTime === bookingTime && bDay === bookingDay && b.startTime >= booking.startTime)
+      })
     } else {
-      setBookings(bookings.filter((b) => b.id !== bookingId))
+      newList = bookings.filter((b) => b.id !== bookingId)
     }
+
+    setBookings(newList)
+    saveBookings(newList)
   }
 
   const filteredBookings = bookings.filter((booking) => {
-    if (filters.activityType !== "all" && booking.type !== filters.activityType) {
-      return false
-    }
-    if (filters.tableType !== "all" && booking.tableType !== filters.tableType) {
-      return false
-    }
-    if (filters.roomType !== "all" && booking.roomType !== filters.roomType) {
-      return false
-    }
-    if (filters.hasProjector === "yes" && !booking.hasProjector) {
-      return false
-    }
-    if (filters.hasProjector === "no" && booking.hasProjector) {
-      return false
-    }
-    if (filters.hasAudioSystem === "yes" && !booking.hasAudioSystem) {
-      return false
-    }
-    if (filters.hasAudioSystem === "no" && booking.hasAudioSystem) {
-      return false
-    }
-    // Filtro por horario
+    if (filters.activityType !== "all" && booking.type !== filters.activityType) return false
+    if (filters.tableType !== "all" && booking.tableType !== filters.tableType) return false
+    if (filters.roomType !== "all" && booking.roomType !== filters.roomType) return false
+    if (filters.hasProjector === "yes" && !booking.hasProjector) return false
+    if (filters.hasProjector === "no" && booking.hasProjector) return false
+    if (filters.hasAudioSystem === "yes" && !booking.hasAudioSystem) return false
+    if (filters.hasAudioSystem === "no" && booking.hasAudioSystem) return false
+
+    // Filtro por bloque horario (igualdad exacta con hora de inicio)
     if (filters.timeBlock !== "all") {
       const selectedBlock = TIME_BLOCKS.find((block) => block.id.toString() === filters.timeBlock)
       if (selectedBlock) {
         const bookingStartTime = booking.startTime.toTimeString().slice(0, 5)
-        if (bookingStartTime !== selectedBlock.startTime) {
-          return false
-        }
+        if (bookingStartTime !== selectedBlock.startTime) return false
       }
     }
+
     if (filters.searchQuery) {
-      const query = filters.searchQuery.toLowerCase()
+      const q = filters.searchQuery.toLowerCase()
       return (
-        booking.title.toLowerCase().includes(query) ||
-        booking.instructor.toLowerCase().includes(query) ||
-        booking.room.toLowerCase().includes(query) ||
-        booking.building.toLowerCase().includes(query)
+        booking.title.toLowerCase().includes(q) ||
+        booking.instructor.toLowerCase().includes(q) ||
+        booking.room.toLowerCase().includes(q) ||
+        booking.building.toLowerCase().includes(q)
       )
     }
     return true
@@ -275,28 +234,30 @@ export function BookingCalendar() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Filters Sidebar */}
-          <div className="lg:col-span-1">
-            <BookingFilters
-              filters={filters}
-              onFiltersChange={setFilters}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
-            />
-          </div>
-
-          {/* Calendar */}
-          <div className="lg:col-span-3">
-            <CalendarView
-              bookings={filteredBookings}
-              onSlotClick={handleSlotClick}
-              onReschedule={handleReschedule}
-              onDeleteBooking={handleDeleteBooking}
-              viewMode={viewMode}
-            />
-          </div>
-        </div>
+        {/* Sidebar */}
+        <div className="lg:col-span-1 space-y-4">
+          <Legend className="sticky top-4" /> {/* visible siempre */}
+          <BookingFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+        />
       </div>
+
+      {/* Calendario */}
+      <div className="lg:col-span-3">
+          <CalendarView
+            bookings={filteredBookings}
+            onSlotClick={handleSlotClick}
+            onReschedule={handleReschedule}
+            onDeleteBooking={handleDeleteBooking}
+            viewMode={viewMode}
+          />
+      </div>
+    </div>
+  </div>
+
 
       {/* Booking Modal */}
       <BookingModal
