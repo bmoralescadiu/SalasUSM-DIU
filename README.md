@@ -29,7 +29,7 @@ nvm install 20 && nvm use 20
 corepack enable
 corepack prepare pnpm@latest --activate
 
-# Verifica que este ok
+#### Verifica que este ok
 node -v
 pnpm -v   # o npm -v / yarn -v
 
