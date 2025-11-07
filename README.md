@@ -10,22 +10,22 @@
 
 **Para Windows (PowerShell)**
 
-# Node LTS
+- Node LTS
 winget install OpenJS.NodeJS.LTS -s winget
 
-# Habilitar pnpm sin instalar globalmente (Corepack)
+- Habilitar pnpm sin instalar globalmente (Corepack)
 corepack enable
 corepack prepare pnpm@latest --activate
 
-# (Si PowerShell bloquea scripts, usa pnpm.cmd)
-# pnpm.cmd -v
+-(Si PowerShell bloquea scripts, usa pnpm.cmd)
+ pnpm.cmd -v
 
 **Para macOS / Linux**
 
-# Con nvm 
+- Con nvm 
 nvm install 20 && nvm use 20
 
-# Habilitar pnpm (Corepack)
+- Habilitar pnpm (Corepack)
 corepack enable
 corepack prepare pnpm@latest --activate
 
