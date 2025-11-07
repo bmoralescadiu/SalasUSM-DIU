@@ -1,4 +1,4 @@
-# REserva de salas USM
+# Reserva de salas USM
 
 *HECHO EN BASE A PROTOTIPO GENERADO POR [v0.app](https://v0.app) deployments*
 
@@ -7,18 +7,14 @@
 
 ## Overview
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
 
 ## Deployment
 
-Your project is live at:
 
 **[https://vercel.com/ipadedante-6049s-projects/v0-professor-booking-interface](https://vercel.com/ipadedante-6049s-projects/v0-professor-booking-interface)**
 
 ## Build your app
 
-Continue building your app on:
 
 **[https://v0.app/chat/projects/iXNDpAaMJIu](https://v0.app/chat/projects/iXNDpAaMJIu)**
 
