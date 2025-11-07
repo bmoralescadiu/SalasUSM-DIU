@@ -1,11 +1,10 @@
+
 // lib/storage.ts
 import type { Booking } from "@/types/booking"
 
 const STORAGE_KEY = "usm_bookings"
 
-// Convierte a Date lo que venga del JSON
 function toDate(v: unknown) {
-  // permite timestamp, ISO string, etc.
   return v instanceof Date ? v : new Date(v as any)
 }
 
@@ -32,7 +31,11 @@ export function saveBookings(bookings: Booking[]) {
   if (typeof window === "undefined") return
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(bookings))
-  } catch {
-    /* noop */
-  }
+  } catch {}
 }
+
+export function deleteBooking(id: string) {
+  const next = loadBookings().filter(b => b.id !== id)
+  saveBookings(next)
+}
+
