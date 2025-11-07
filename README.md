@@ -17,7 +17,7 @@ winget install OpenJS.NodeJS.LTS -s winget
 corepack enable
 corepack prepare pnpm@latest --activate
 
--Si PowerShell bloquea scripts
+Si PowerShell bloquea scripts usa:
  pnpm.cmd -v
 
 **Para macOS / Linux**
@@ -30,9 +30,21 @@ corepack enable
 corepack prepare pnpm@latest --activate
 
 #### Verifica que este ok
-node -v
-pnpm -v   # o npm -v / yarn -v
+node -v junto con
+pnpm -v 
 
+En otro caso;
+- npm -v
+- yarn -v
+
+### Para Ejecutar
+pnpm dev
+### Alternativas:
+- npm run dev
+- yarn dev
+
+Luego abre el siguiente link en tu navegador de preferencia: 
+http://localhost:3000
 
 *HECHO EN BASE A PROTOTIPO GENERADO POR [v0.app](https://v0.app)*
 
