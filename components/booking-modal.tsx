@@ -1,467 +1,318 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect, useMemo } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertTriangle, Calendar, User, Users, Repeat, Volume2, Projector, AlertCircle } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useEffect, useMemo, useState } from "react"
 import type { Booking } from "@/types/booking"
-import { TIME_BLOCKS, AVAILABLE_ROOMS } from "@/types/booking"
+import { TIME_BLOCKS } from "@/types/booking"
+import { ROOMS } from "@/data/rooms"              // rooms.ts que hiciste acorde a booking.ts
+import { Button } from "@/components/ui/button"
+import { X, Users } from "lucide-react"
 
-interface BookingModalProps {
+// Si ya creaste el toggle de recurrencia, descomenta esta línea y usa <RecurrenceToggle/>
+// import RecurrenceToggle from "@/components/recurrence-toggle"
+
+type Props = {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (booking: Omit<Booking, "id">) => boolean
+  onSubmit: (b: Omit<Booking, "id">) => boolean
   selectedSlot: { date: Date; time: string } | null
   conflicts: Booking[]
 }
 
-export function BookingModal({ isOpen, onClose, onSubmit, selectedSlot, conflicts }: BookingModalProps) {
-  const [formData, setFormData] = useState({
-    title: "",
-    type: "class" as Booking["type"],
-    room: "",
-    instructor: "",
-    date: "",
-    timeBlock: "",
-    participants: 0,
-    tableType: "",
-    roomType: "",
-    requiresProjector: false,
-    requiresAudioSystem: false,
-    recurrence: "once" as "once" | "weekly",
-  })
+// utilidades
+const parseHHMM = (s: string): [number, number] => {
+  const [h, m] = s.split(":").map(Number)
+  return [h || 0, m || 0]
+}
+const withTime = (base: Date, hhmm: string) => {
+  const [h, m] = parseHHMM(hhmm)
+  const d = new Date(base)
+  d.setHours(h, m, 0, 0)
+  return d
+}
 
+export function BookingModal({ isOpen, onClose, onSubmit, selectedSlot, conflicts }: Props) {
+  if (!isOpen) return null
+
+  const defaultDate = selectedSlot?.date ?? new Date()
+  const defaultBlock = TIME_BLOCKS.find(b => b.startTime === selectedSlot?.time) ?? TIME_BLOCKS[0]
+
+  // estado del formulario
+  const [title, setTitle] = useState("")
+  const [instructor, setInstructor] = useState("")
+  const [activityType, setActivityType] = useState<Booking["type"]>("class")
+  const [recurrence, setRecurrence] = useState<NonNullable<Booking["recurrence"]>>("once")
+
+  // edificio/sala (coinciden con tu Room)
+  const [building, setBuilding] = useState<Booking["building"]>(ROOMS[0]?.building ?? "A")
+  const roomsOfBuilding = useMemo(() => ROOMS.filter(r => r.building === building), [building])
+  const [roomName, setRoomName] = useState<string>(roomsOfBuilding[0]?.name ?? ROOMS[0]?.name ?? "Sala A101")
+
+  // bloque horario
+  const [blockId, setBlockId] = useState<number>(defaultBlock.id)
+
+  // capacidad/prestaciones
+  const [participants, setParticipants] = useState<number>(10)
+  const [needs, setNeeds] = useState<{ projector: boolean; audio: boolean }>({ projector: true, audio: false })
+
+  // sincroniza bloque al abrir con el slot elegido
   useEffect(() => {
-    if (selectedSlot) {
-      const year = selectedSlot.date.getFullYear()
-      const month = String(selectedSlot.date.getMonth() + 1).padStart(2, "0")
-      const day = String(selectedSlot.date.getDate()).padStart(2, "0")
-      const dateStr = `${year}-${month}-${day}`
-
-      const matchingBlock = TIME_BLOCKS.find((block) => block.startTime === selectedSlot.time)
-
-      setFormData((prev) => ({
-        ...prev,
-        date: dateStr,
-        timeBlock: matchingBlock ? matchingBlock.id.toString() : "",
-      }))
+    if (selectedSlot?.time) {
+      const b = TIME_BLOCKS.find(bb => bb.startTime === selectedSlot.time)
+      if (b) setBlockId(b.id)
     }
   }, [selectedSlot])
 
-  const availableRooms = useMemo(() => {
-    return AVAILABLE_ROOMS.filter((room) => {
-      // Verificar capacidad
-      if (formData.participants > 0 && room.capacity < formData.participants) {
-        return false
-      }
-      // Verificar proyector
-      if (formData.requiresProjector && !room.hasProjector) {
-        return false
-      }
-      // Verificar sistema de audio
-      if (formData.requiresAudioSystem && !room.hasAudioSystem) {
-        return false
-      }
-      // Verificar tipo de mesas
-      if (formData.tableType && formData.tableType !== "" && room.tableType !== formData.tableType) {
-        return false
-      }
-      // Verificar tipo de sala
-      if (formData.roomType && formData.roomType !== "" && room.roomType !== formData.roomType) {
-        return false
-      }
-      return true
-    })
-  }, [
-    formData.participants,
-    formData.requiresProjector,
-    formData.requiresAudioSystem,
-    formData.tableType,
-    formData.roomType,
-  ])
-
-  const selectedRoomInfo = useMemo(() => {
-    return AVAILABLE_ROOMS.find((room) => room.name === formData.room)
-  }, [formData.room])
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-
-    const selectedBlock = TIME_BLOCKS.find((block) => block.id.toString() === formData.timeBlock)
-    if (!selectedBlock || !selectedRoomInfo) return
-
-    const [year, month, day] = formData.date.split("-").map(Number)
-    const [startHours, startMinutes] = selectedBlock.startTime.split(":").map(Number)
-    const [endHours, endMinutes] = selectedBlock.endTime.split(":").map(Number)
-
-    const startDate = new Date(year, month - 1, day, startHours, startMinutes, 0, 0)
-    const endDate = new Date(year, month - 1, day, endHours, endMinutes, 0, 0)
-
-    const booking: Omit<Booking, "id"> = {
-      title: formData.title,
-      type: formData.type,
-      room: formData.room,
-      building: selectedRoomInfo.building,
-      instructor: formData.instructor,
-      startTime: startDate,
-      endTime: endDate,
-      participants: formData.participants,
-      tableType: formData.tableType,
-      roomType: formData.roomType,
-      hasProjector: selectedRoomInfo.hasProjector,
-      hasAudioSystem: selectedRoomInfo.hasAudioSystem,
-      recurrence: formData.recurrence,
+  // cuando cambia edificio, aseguro una sala válida
+  useEffect(() => {
+    if (!roomsOfBuilding.find(r => r.name === roomName)) {
+      setRoomName(roomsOfBuilding[0]?.name ?? roomName)
     }
+  }, [building]) // eslint-disable-line
 
-    const success = onSubmit(booking)
-    if (success) {
-      setFormData({
-        title: "",
-        type: "class",
-        room: "",
-        instructor: "",
-        date: "",
-        timeBlock: "",
-        participants: 0,
-        tableType: "",
-        roomType: "",
-        requiresProjector: false,
-        requiresAudioSystem: false,
-        recurrence: "once",
-      })
+  const room = useMemo(() => ROOMS.find(r => r.name === roomName), [roomName])
+
+  // arma start/end según TIME_BLOCKS (usa endTime de tu tipo)
+  const block = TIME_BLOCKS.find(b => b.id === blockId) ?? TIME_BLOCKS[0]
+  const startTime = withTime(defaultDate, block.startTime)
+  const endTime   = withTime(defaultDate, block.endTime)
+
+  // VALIDACIONES usando hasProjector / hasAudioSystem
+  const validCapacity   = room ? participants <= room.capacity : true
+  const validProjector  = !needs.projector || (room ? room.hasProjector : true)
+  const validAudio      = !needs.audio     || (room ? room.hasAudioSystem : true)
+
+  const canSave =
+    title.trim().length > 0 &&
+    !!room &&
+    validCapacity &&
+    validProjector &&
+    validAudio
+
+  const handleSubmit = () => {
+    if (!room || !canSave) return
+    const payload: Omit<Booking, "id"> = {
+      title: title.trim(),
+      type: activityType,
+      room: room.name,
+      building: room.building,
+      instructor: instructor.trim() || "—",
+      startTime,
+      endTime,
+      participants,
+      tableType: room.tableType,
+      roomType: room.roomType,
+      hasProjector: room.hasProjector,
+      hasAudioSystem: room.hasAudioSystem,
+      recurrence,
     }
+    const ok = onSubmit(payload)
+    if (ok) onClose()
   }
 
-  const availableBlocks = TIME_BLOCKS.filter((block) => !block.isLunch)
+  const buildings = Array.from(new Set(ROOMS.map(r => r.building))) as Booking["building"][]
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-2xl">Nueva Reserva</DialogTitle>
-          <DialogDescription>
-            Complete los detalles de la reserva. El sistema detectará automáticamente conflictos de horarios.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4">
+      <div className="w-full max-w-2xl rounded-md border bg-background shadow-lg">
+        {/* header */}
+        <div className="flex items-center justify-between p-3 border-b">
+          <div className="space-y-0.5">
+            <div className="text-lg font-semibold">Nueva reserva</div>
+            <div className="text-xs text-muted-foreground">
+              {recurrence === "once" ? "Reserva esporádica" : "Reserva repetitiva (semanal)"} ·{" "}
+              {defaultDate.toLocaleDateString()} · {block.label}
+            </div>
+          </div>
+          <button className="p-1 rounded hover:bg-muted" onClick={onClose} aria-label="Cerrar">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-        {conflicts.length > 0 && (
-          <Alert variant="destructive" className="bg-destructive/10 border-destructive">
-            <AlertTriangle className="h-5 w-5" />
-            <AlertDescription className="ml-2">
-              <div className="font-semibold mb-2">¡Conflicto de horarios detectado!</div>
-              <div className="space-y-2">
-                {conflicts.map((conflict) => (
-                  <div key={conflict.id} className="text-sm bg-background/50 p-2 rounded">
-                    <div className="font-medium">{conflict.title}</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Edificio {conflict.building} - {conflict.room} • {conflict.instructor} •
-                      {conflict.startTime.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} -
-                      {conflict.endTime.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 text-sm">
-                Por favor, seleccione otro horario, sala o instructor para evitar el conflicto.
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
+        {/* body */}
+        <div className="p-4 space-y-4">
+          {/* Tipo de reserva (inline para evitar dependencias) */}
+          <section className="space-y-2">
+            <label className="text-sm font-medium">Tipo de reserva</label>
+            <div className="inline-flex rounded-md border overflow-hidden">
+              <button
+                type="button"
+                className={`px-3 py-2 text-sm ${recurrence === "once" ? "bg-foreground text-background" : "bg-background hover:bg-muted"}`}
+                onClick={() => setRecurrence("once")}
+              >
+                Esporádica
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-2 text-sm ${recurrence === "weekly" ? "bg-foreground text-background" : "bg-background hover:bg-muted"}`}
+                onClick={() => setRecurrence("weekly")}
+              >
+                Repetitiva (semanal)
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {recurrence === "once"
+                ? "Se crea solo para la fecha y bloque seleccionados."
+                : "Se crean instancias semanales del mismo día y bloque."}
+            </p>
+          </section>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <Label htmlFor="title" className="text-foreground">
-                Título de la Actividad *
-              </Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Ej: Clase de Matemáticas Avanzadas"
-                required
+          {/* Datos básicos */}
+          <section className="grid md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-sm">Título</label>
+              <input
+                className="w-full rounded border bg-background p-2 text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">Docente/Responsable</label>
+              <input
+                className="w-full rounded border bg-background p-2 text-sm"
+                value={instructor}
+                onChange={(e) => setInstructor(e.target.value)}
               />
             </div>
 
-            <div>
-              <Label htmlFor="type" className="text-foreground">
-                Tipo de Actividad *
-              </Label>
-              <Select value={formData.type} onValueChange={(value: any) => setFormData({ ...formData, type: value })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="class">Clase</SelectItem>
-                  <SelectItem value="lab">Laboratorio</SelectItem>
-                  <SelectItem value="ayudantia">Ayudantía</SelectItem>
-                  <SelectItem value="seminar">Seminario</SelectItem>
-                  <SelectItem value="certamen">Certamen</SelectItem>
-                  <SelectItem value="evento">Evento</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="instructor" className="text-foreground">
-                Instructor/Profesor *
-              </Label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="instructor"
-                  value={formData.instructor}
-                  onChange={(e) => setFormData({ ...formData, instructor: e.target.value })}
-                  placeholder="Ej: Prof. García"
-                  className="pl-9"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="participants" className="text-foreground">
-                Número de Participantes *
-              </Label>
-              <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="participants"
-                  type="number"
-                  value={formData.participants || ""}
-                  onChange={(e) => setFormData({ ...formData, participants: Number.parseInt(e.target.value) || 0 })}
-                  placeholder="25"
-                  className="pl-9"
-                  min="1"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="date" className="text-foreground">
-                Fecha *
-              </Label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="date"
-                  type="date"
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="pl-9"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="col-span-2">
-              <Label htmlFor="timeBlock" className="text-foreground">
-                Bloque Horario *
-              </Label>
-              <Select
-                value={formData.timeBlock}
-                onValueChange={(value) => setFormData({ ...formData, timeBlock: value })}
+            <div className="space-y-1">
+              <label className="text-sm">Tipo de actividad</label>
+              <select
+                className="w-full rounded border bg-background p-2 text-sm"
+                value={activityType}
+                onChange={(e) => setActivityType(e.target.value as Booking["type"])}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar bloque horario" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableBlocks.map((block) => (
-                    <SelectItem key={block.id} value={block.id.toString()}>
-                      {block.label} ({block.startTime} - {block.endTime})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <option value="class">Clase</option>
+                <option value="lab">Laboratorio</option>
+                <option value="ayudantia">Ayudantía</option>
+                <option value="seminar">Seminario</option>
+                <option value="certamen">Certamen</option>
+                <option value="evento">Evento</option>
+              </select>
             </div>
 
-            <div className="col-span-2 space-y-3 p-4 bg-muted/30 rounded-lg">
-              <Label className="text-foreground font-semibold">Requisitos de la Sala</Label>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.requiresProjector}
-                    onChange={(e) => setFormData({ ...formData, requiresProjector: e.target.checked })}
-                    className="w-4 h-4 rounded border-gray-300"
-                  />
-                  <Projector className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">Requiere Proyector</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.requiresAudioSystem}
-                    onChange={(e) => setFormData({ ...formData, requiresAudioSystem: e.target.checked })}
-                    className="w-4 h-4 rounded border-gray-300"
-                  />
-                  <Volume2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">Requiere Sistema de Audio</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="col-span-2">
-              <Label htmlFor="room" className="text-foreground">
-                Sala *
-              </Label>
-              <Select
-                value={formData.room}
-                onValueChange={(value) => setFormData({ ...formData, room: value })}
-                disabled={formData.participants === 0}
+            <div className="space-y-1">
+              <label className="text-sm">Bloque horario</label>
+              <select
+                className="w-full rounded border bg-background p-2 text-sm"
+                value={String(blockId)}
+                onChange={(e) => setBlockId(Number(e.target.value))}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Primero ingrese el número de participantes" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableRooms.length === 0 ? (
-                    <div className="p-4 text-sm text-muted-foreground text-center">
-                      No hay salas disponibles con los requisitos seleccionados
-                    </div>
-                  ) : (
-                    availableRooms.map((room) => (
-                      <SelectItem key={room.name} value={room.name}>
-                        <div className="flex flex-col gap-1 py-1">
-                          <div className="flex items-center justify-between gap-4">
-                            <span className="font-medium">{room.name}</span>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>Edificio {room.building}</span>
-                              <span>•</span>
-                              <span>Cap: {room.capacity}</span>
-                              {room.hasProjector && <Projector className="h-3 w-3" />}
-                              {room.hasAudioSystem && <Volume2 className="h-3 w-3" />}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="capitalize">
-                              {room.roomType === "sala-estudio" ? "Sala de estudio" : room.roomType}
-                            </span>
-                            <span>•</span>
-                            <span className="capitalize">
-                              Mesas {room.tableType === "auditorio" ? "tipo auditorio" : `${room.tableType}es`}
-                            </span>
-                          </div>
-                        </div>
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              {selectedRoomInfo && (
-                <div className="mt-2 p-3 bg-muted/50 rounded-md text-sm">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 text-primary mt-0.5" />
-                    <div>
-                      <div className="font-medium text-foreground">Información de la sala:</div>
-                      <div className="text-muted-foreground mt-1 space-y-1">
-                        <div>
-                          • Tipo:{" "}
-                          {selectedRoomInfo.roomType === "sala-estudio"
-                            ? "Sala de estudio"
-                            : selectedRoomInfo.roomType.charAt(0).toUpperCase() + selectedRoomInfo.roomType.slice(1)}
-                        </div>
-                        <div>
-                          • Mesas:{" "}
-                          {selectedRoomInfo.tableType === "auditorio"
-                            ? "Tipo auditorio"
-                            : `${selectedRoomInfo.tableType.charAt(0).toUpperCase() + selectedRoomInfo.tableType.slice(1)}es`}
-                        </div>
-                        <div>• Edificio {selectedRoomInfo.building}</div>
-                        <div>• Capacidad máxima: {selectedRoomInfo.capacity} personas</div>
-                        <div>• Proyector: {selectedRoomInfo.hasProjector ? "Sí" : "No"}</div>
-                        <div>• Sistema de audio: {selectedRoomInfo.hasAudioSystem ? "Sí" : "No"}</div>
-                      </div>
-                    </div>
+                {TIME_BLOCKS.map((b) => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.label} ({b.startTime}–{b.endTime})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm">Edificio</label>
+              <select
+                className="w-full rounded border bg-background p-2 text-sm"
+                value={building}
+                onChange={(e) => setBuilding(e.target.value as Booking["building"])}
+              >
+                {buildings.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm">Sala</label>
+              <select
+                className="w-full rounded border bg-background p-2 text-sm"
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+              >
+                {roomsOfBuilding.map(r => (
+                  <option key={r.name} value={r.name}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+          </section>
+
+          {/* Capacidad y prestaciones (visual simple y 100% acorde a tus tipos) */}
+          {room && (
+            <section className="rounded-md border p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="font-medium">{room.building} — {room.name}</div>
+                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                  <Users className="h-4 w-4" /> Capacidad {room.capacity}
+                </div>
+              </div>
+
+              {/* barra capacidad */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span>Capacidad utilizada</span>
+                  <span>{participants}/{room.capacity} ({Math.min(100, Math.round((participants / room.capacity) * 100))}%)</span>
+                </div>
+                <div className="h-2 w-full rounded bg-muted overflow-hidden">
+                  <div
+                    className={`h-full ${
+                      participants <= room.capacity * 0.8 ? "bg-emerald-500"
+                      : participants <= room.capacity ? "bg-amber-500"
+                      : "bg-rose-500"
+                    }`}
+                    style={{ width: `${Math.min(100, Math.round((participants / room.capacity) * 100))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* controles de participantes y necesidades */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Participantes</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={participants}
+                    onChange={(e) => setParticipants(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full rounded border bg-background p-2"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Necesidades</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className={`px-2 py-1 rounded border text-xs ${needs.projector ? "bg-foreground text-background" : "hover:bg-muted"}`}
+                      onClick={() => setNeeds(prev => ({ ...prev, projector: !prev.projector }))}
+                    >
+                      Proyector {room.hasProjector ? "" : "(no disponible)"}
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-2 py-1 rounded border text-xs ${needs.audio ? "bg-foreground text-background" : "hover:bg-muted"}`}
+                      onClick={() => setNeeds(prev => ({ ...prev, audio: !prev.audio }))}
+                    >
+                      Audio {room.hasAudioSystem ? "" : "(no disponible)"}
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            </section>
+          )}
 
-            <div>
-              <Label htmlFor="tableType" className="text-foreground">
-                Tipo de Mesas
-              </Label>
-              <Select
-                value={formData.tableType}
-                onValueChange={(value) => setFormData({ ...formData, tableType: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="individual">Mesas individuales</SelectItem>
-                  <SelectItem value="grupal">Mesas grupales</SelectItem>
-                  <SelectItem value="auditorio">Tipo auditorio</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          {/* mensajes de validación */}
+          <section className="text-xs space-y-1">
+            {!validCapacity   && <p className="text-rose-600">⚠️ Participantes exceden la capacidad de la sala.</p>}
+            {!validProjector  && <p className="text-rose-600">⚠️ Se requiere proyector, pero la sala no dispone.</p>}
+            {!validAudio      && <p className="text-rose-600">⚠️ Se requiere audio, pero la sala no dispone.</p>}
+            {conflicts.length > 0 && <p className="text-rose-600">⚠️ Existen conflictos de horario con otras reservas.</p>}
+          </section>
+        </div>
 
-            <div>
-              <Label htmlFor="roomType" className="text-foreground">
-                Tipo de Sala
-              </Label>
-              <Select
-                value={formData.roomType}
-                onValueChange={(value) => setFormData({ ...formData, roomType: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="aula">Aula</SelectItem>
-                  <SelectItem value="laboratorio">Laboratorio</SelectItem>
-                  <SelectItem value="sala-estudio">Sala de estudio</SelectItem>
-                  <SelectItem value="auditorio">Auditorio</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="col-span-2">
-              <Label htmlFor="recurrence" className="text-foreground">
-                Periodicidad *
-              </Label>
-              <Select
-                value={formData.recurrence}
-                onValueChange={(value: any) => setFormData({ ...formData, recurrence: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="once">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      <span>Una sola ocasión</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="weekly">
-                    <div className="flex items-center gap-2">
-                      <Repeat className="h-4 w-4" />
-                      <span>Semanalmente (repetir cada semana)</span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex gap-3 justify-end pt-4 border-t border-border">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={conflicts.length > 0 || !formData.room}>
-              {conflicts.length > 0 ? "Resolver Conflictos" : "Confirmar Reserva"}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        {/* footer */}
+        <div className="flex justify-end gap-2 p-3 border-t">
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={!canSave}>
+            Guardar {recurrence === "weekly" ? "(serie semanal)" : ""}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

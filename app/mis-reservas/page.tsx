@@ -2,8 +2,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { Booking } from "@/types/booking"
 import { loadBookings, deleteBooking } from "@/lib/storage"
+import type { Booking } from "@/types/booking"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
@@ -19,11 +19,7 @@ export default function MisReservasPage() {
   return (
     <main className="container mx-auto p-4 space-y-3">
       <h1 className="text-xl font-semibold">Mis reservas</h1>
-
-      {list.length === 0 && (
-        <p className="text-sm text-muted-foreground">Aún no tienes reservas.</p>
-      )}
-
+      {list.length === 0 && <p className="text-sm text-muted-foreground">Aún no tienes reservas.</p>}
       {list.map(b => (
         <Card key={b.id} className="p-3 flex items-center justify-between">
           <div className="text-sm">
@@ -31,8 +27,12 @@ export default function MisReservasPage() {
             <div>{b.building}-{b.room} · {b.startTime.toLocaleString()} — {b.endTime.toLocaleTimeString()}</div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => location.href='/?edit='+b.id}>Editar</Button>
-            <Button variant="destructive" onClick={() => onDelete(b.id)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => (location.href = '/disponibilidad?edit=' + b.id)}>
+              Editar
+            </Button>
+            <Button variant="destructive" onClick={() => onDelete(b.id)}>
+              Cancelar
+            </Button>
           </div>
         </Card>
       ))}

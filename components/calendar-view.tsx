@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, MoreHorizontal } f
 import type { Booking } from "@/types/booking"
 import { TIME_BLOCKS } from "@/types/booking"
 
+/* ================== Tipos de props ================== */
 type Props = {
   bookings: Booking[]
   onSlotClick: (date: Date, time: string) => void
@@ -15,7 +16,7 @@ type Props = {
   viewMode: "week" | "month"
 }
 
-/* ----------------- helpers ----------------- */
+/* ================== Helpers de fechas ================== */
 const todayAt0 = () => {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -23,6 +24,17 @@ const todayAt0 = () => {
 }
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`)
 const hhmm = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+
+const parseHHMM = (s: string): [number, number] => {
+  const [h, m] = s.split(":").map(Number)
+  return [h || 0, m || 0]
+}
+const withTime = (base: Date, time: string) => {
+  const [h, m] = parseHHMM(time)
+  const d = new Date(base)
+  d.setHours(h, m, 0, 0)
+  return d
+}
 
 const startOfWeek = (date: Date) => {
   const d = new Date(date)
@@ -48,20 +60,23 @@ const monthGridDays = (cursor: Date) => {
   const start = startOfMonthGrid(cursor)
   return Array.from({ length: 42 }, (_, i) => addDays(start, i)) // 6x7
 }
+
 const dayNames = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
-/* --- colores consistentes en leyenda, filtros y eventos --- */
+/* ========== Colores consistentes (leyenda/filtros/eventos) ========== */
 const typeStyle = (t: Booking["type"]) => {
   switch (t) {
-    case "class":     return { chip: "bg-blue-500/15 border-blue-500/30", dot: "bg-blue-500",    label: "Clase" }
-    case "lab":       return { chip: "bg-amber-500/15 border-amber-500/30", dot: "bg-amber-500", label: "Laboratorio" }
-    case "ayudantia": return { chip: "bg-emerald-500/15 border-emerald-500/30", dot: "bg-emerald-500", label: "Ayudantía" }
-    case "seminar":   return { chip: "bg-purple-500/15 border-purple-500/30", dot: "bg-purple-500", label: "Seminario" }
-    case "certamen":  return { chip: "bg-rose-500/15 border-rose-500/30", dot: "bg-rose-500",    label: "Certamen" }
-    default:          return { chip: "bg-muted border-border", dot: "bg-muted-foreground", label: "Evento" }
+    case "class":     return { chip: "bg-blue-500/15 border-blue-500/30",    dot: "bg-blue-500" }
+    case "lab":       return { chip: "bg-amber-500/15 border-amber-500/30",  dot: "bg-amber-500" }
+    case "ayudantia": return { chip: "bg-emerald-500/15 border-emerald-500/30", dot: "bg-emerald-500" }
+    case "seminar":   return { chip: "bg-purple-500/15 border-purple-500/30",  dot: "bg-purple-500" }
+    case "certamen":  return { chip: "bg-rose-500/15 border-rose-500/30",      dot: "bg-rose-500" }
+    case "evento":    return { chip: "bg-muted border-border",                dot: "bg-muted-foreground" }
+    default:          return { chip: "bg-muted border-border",                dot: "bg-muted-foreground" }
   }
 }
 
+/* ================== Componente principal ================== */
 export function CalendarView({
   bookings,
   onSlotClick,
@@ -249,6 +264,9 @@ function MonthView({
 }) {
   const month = cursorDate.getMonth()
 
+  // bloques seleccionables (si no quieres crear en almuerzo, filtra aquí)
+  const selectableBlocks = TIME_BLOCKS // .filter(b => !b.isLunch)
+
   return (
     <div className="space-y-2">
       {/* cabecera días */}
@@ -280,7 +298,7 @@ function MonthView({
                   </button>
                 </PopoverTrigger>
                 <PopoverContent className="p-2 space-y-1 w-56" align="start">
-                  {TIME_BLOCKS.map((b) => (
+                  {selectableBlocks.map((b) => (
                     <button
                       key={b.id}
                       type="button"
@@ -293,22 +311,33 @@ function MonthView({
                 </PopoverContent>
               </Popover>
 
-              {/* eventos del día (chips con acciones) */}
+              {/* eventos del día */}
               <div className="mt-1 space-y-1">
                 {events.map((ev) => {
                   const st = hhmm(ev.startTime)
                   const color = typeStyle(ev.type).chip
-                  const durMs = ev.endTime.getTime() - ev.startTime.getTime()
 
+                  /* ======= SNIPPET INTEGRADO (badge “⟲ serie”) ======= */
                   return (
                     <div key={ev.id} className={`rounded border ${color} px-2 py-1 text-xs`}>
                       <div className="flex items-start justify-between gap-1">
                         <div className="min-w-0">
-                          <div className="font-medium truncate">{st} · {ev.title}</div>
-                          <div className="text-[10px] text-muted-foreground truncate">{ev.building}-{ev.room}</div>
+                          <div className="font-medium truncate">
+                            {st} · {ev.title}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {ev.building}-{ev.room}
+                          </div>
                         </div>
-
-                        {/* menú acciones: editar bloque / eliminar / eliminar serie */}
+                        {ev.recurrence === "weekly" && (
+                          <span title="Reserva repetitiva" className="text-[10px] px-1 rounded bg-foreground/10">
+                            ⟲ serie
+                          </span>
+                        )}
+                      </div>
+                      {/* ... resto del popover de acciones si lo tienes */}
+                      {/* ======= Acciones: editar bloque / eliminar ======= */}
+                      <div className="mt-1 flex justify-end">
                         <Popover>
                           <PopoverTrigger asChild>
                             <button
@@ -323,16 +352,14 @@ function MonthView({
                           <PopoverContent className="p-2 space-y-2 w-60" align="end">
                             <div className="text-xs font-medium text-muted-foreground px-1">Editar bloque</div>
                             <div className="grid grid-cols-2 gap-1">
-                              {TIME_BLOCKS.map((b) => (
+                              {selectableBlocks.map((b) => (
                                 <button
                                   key={b.id}
                                   type="button"
                                   className="text-left rounded px-2 py-1 hover:bg-accent"
                                   onClick={() => {
-                                    const [h, m] = b.startTime.split(":").map(Number)
-                                    const newStart = new Date(ev.startTime)
-                                    newStart.setHours(h, m, 0, 0)
-                                    const newEnd = new Date(newStart.getTime() + durMs)
+                                    const newStart = withTime(ev.startTime, b.startTime)
+                                    const newEnd   = withTime(ev.startTime, b.endTime)
                                     onReschedule(ev.id, newStart, newEnd)
                                   }}
                                 >
